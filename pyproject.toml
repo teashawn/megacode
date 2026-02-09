@@ -5,18 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "security-audit"
 version = "0.2.0"
-description = "RLM-powered .NET security audit tool using DSPy and local repo tools"
+description = "RLM-powered multi-language security audit tool using DSPy and local repo tools"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.9"
-keywords = ["security", "audit", "dotnet", "dspy", "rlm", "llm"]
+requires-python = ">=3.10"
+keywords = ["security", "audit", "dotnet", "python", "go", "react", "typescript", "dspy", "rlm", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -47,10 +46,10 @@ py-modules = ["audit"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 

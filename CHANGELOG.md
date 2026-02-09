@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Multi-language support**: Python, Go, and React/TypeScript security audit
+  profiles alongside the existing .NET profile.
+- `LanguageProfile` frozen dataclass for structured, immutable language
+  configurations.
+- `--language` CLI flag (`auto`, `python`, `go`, `react`, `dotnet`) with
+  auto-detection as the default.
+- `detect_language()` function that scans top-level directory for project
+  markers and file extensions to select the best profile.
+- Language-specific vulnerability checklists and security signal regex patterns
+  for each profile.
+- Per-language `tool_help` examples and `scanner_instructions` for the RLM.
+- Research documents (`research/`) for Python, Go, and React security
+  vulnerabilities.
 - Public repository URL references updated to
   `https://github.com/mitkox/megacode`.
 - `--fast-mode` profile and `--overview-top-files` controls for small-context
@@ -18,6 +31,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Refactored hardcoded .NET constants into a `DOTNET_PROFILE` instance.
+- `CodeScanner` signature now uses dynamic `with_instructions()` per language.
+- `collect_source_manifest`, `_score_manifest_entry`, `_extension_priority`,
+  `_is_audit_file`, and `build_rlm_tools` now accept a `profile` parameter.
+- Minimum Python version raised from 3.9 to 3.10 (required by dspy 3.1.3).
+- Parser description updated to be language-agnostic.
+- Metadata output now includes detected language profile name.
 - Strengthened RLM instructions toward strict tool-only repository access.
 - Improved manifest ranking to prioritize code-centric extensions.
 - README and contribution docs updated to match latest CLI/runtime behavior.

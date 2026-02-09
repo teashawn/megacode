@@ -1,6 +1,6 @@
 # Security Audit (DSPy RLM)
 
-RLM-based security auditing for large .NET repositories.
+RLM-based security auditing for large repositories. Supports **Python**, **Go**, **React/TypeScript**, and **.NET** codebases.
 
 Open-sourced on GitHub: `https://github.com/mitkox/megacode`
 
@@ -16,14 +16,17 @@ security issues.
 
 ## Features
 
-- Scales to large repositories via recursive/tool-based analysis.
-- Indexes relevant source/config files into a ranked manifest.
+- Multi-language support: Python, Go, React/TypeScript, .NET
+- Auto-detects repository language from project markers and file extensions
+- Scales to large repositories via recursive/tool-based analysis
+- Indexes relevant source/config files into a ranked manifest
 - Exposes safe, bounded host tools to RLM:
   - `tool_help`
   - `list_manifest`
   - `search_pattern`
   - `read_file`
-- `search_pattern` automatically uses ripgrep when available, with Python fallback.
+- `search_pattern` automatically uses ripgrep when available, with Python fallback
+- Language-specific vulnerability checklists and security signal detection
 - Produces:
   - Markdown report
   - JSON metadata
@@ -31,7 +34,7 @@ security issues.
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+
 - Deno (required by DSPy Python interpreter)
 - ripgrep (`rg`) recommended for fastest REPL `search_pattern` scans on large repos
 - OpenAI-compatible model endpoint (for example vLLM) reachable at
@@ -47,31 +50,58 @@ pip install -e .[dev]
 
 ## Quick Start
 
+Auto-detect language:
+
 ```bash
-python audit.py --source-root ~/dev/PowerToys --verbose
+python audit.py --source-root ~/dev/my-project --verbose
+```
+
+Specify language explicitly:
+
+```bash
+python audit.py --source-root ~/dev/my-flask-app --language python --verbose
+python audit.py --source-root ~/dev/my-go-api --language go --verbose
+python audit.py --source-root ~/dev/my-react-app --language react --verbose
+python audit.py --source-root ~/dev/PowerToys --language dotnet --verbose
 ```
 
 Or via installed entrypoint:
 
 ```bash
-security-audit --source-root ~/dev/PowerToys --verbose
+security-audit --source-root ~/dev/my-project --verbose
 ```
 
 Fast local profile (small-context vLLM):
 
 ```bash
 security-audit \
-  --source-root ~/dev/PowerToys \
+  --source-root ~/dev/my-project \
   --fast-mode \
   --max-iterations 6 \
   --timeout-seconds 600
 ```
 
+## Language Support
+
+| Language | Profile | Auto-detected by |
+|----------|---------|------------------|
+| Python (Django, Flask, FastAPI) | `--language python` | `pyproject.toml`, `setup.py`, `requirements.txt`, `Pipfile`, `manage.py`, `.py` files |
+| Go (Gin, Echo, Chi) | `--language go` | `go.mod`, `go.sum`, `.go` files |
+| React/TypeScript (Next.js, Vite) | `--language react` | `package.json`, `next.config.*`, `vite.config.*`, `.tsx`/`.jsx` files |
+| .NET (ASP.NET, Blazor) | `--language dotnet` | `*.sln`, `*.csproj`, `global.json`, `.cs`/`.vb`/`.fs` files |
+
+Each profile includes:
+- Language-specific file extensions and project markers
+- Targeted security signal detection patterns
+- Vulnerability checklist (injection, auth, crypto, XSS, secrets, SSRF, etc.)
+- Tuned `tool_help` examples for the RLM
+
 ## Common Options
 
 ```bash
 security-audit \
-  --source-root ~/dev/PowerToys \
+  --source-root ~/dev/my-project \
+  --language auto \
   --max-iterations 12 \
   --max-files 6000 \
   --overview-top-files 25 \
@@ -93,6 +123,7 @@ the CLI auto-normalizes to `openai/mitko` for LiteLLM compatibility.
 
 Useful runtime options:
 
+- `--language` language profile (`auto`, `python`, `go`, `react`, `dotnet`)
 - `--fast-mode` tighter defaults for faster/smaller-context runs
 - `--verbose` / `--no-verbose` DSPy RLM iteration logs
 - `--tool-max-lines`, `--tool-max-chars` bound file snippet payloads
@@ -124,6 +155,7 @@ Change with:
   - lower `--rlm-max-output-chars`
   - lower `--max-iterations`
   - adjust `--lm-max-tokens` to fit backend constraints
+- If auto-detection picks the wrong language, use `--language` to override.
 
 ## Development
 

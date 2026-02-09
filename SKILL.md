@@ -1,6 +1,6 @@
 ---
 name: security-audit-rlm
-description: Run and troubleshoot privacy-preserving, local DSPy RLM security audits for large legacy .NET codebases. Use when asked to scan repositories for vulnerabilities, tune RLM/tool limits, fix truncation/stall issues, or produce actionable markdown/json audit outputs without loading entire codebases into model context.
+description: Run and troubleshoot privacy-preserving, local DSPy RLM security audits for multi-language codebases (Python, Go, React/TypeScript, .NET). Use when asked to scan repositories for vulnerabilities, tune RLM/tool limits, fix truncation/stall issues, or produce actionable markdown/json audit outputs without loading entire codebases into model context.
 ---
 
 # Security Audit RLM
@@ -16,10 +16,19 @@ Repository: `https://github.com/mitkox/megacode`
    - model endpoint is reachable (default `http://localhost:8000/v1`)
 2. Run a baseline audit:
    - `AUDIT_VERBOSE=1 python audit.py --source-root <repo-path>`
+   - Language is auto-detected; override with `--language python|go|react|dotnet`
 3. Confirm outputs:
    - `security_audit_report.md`
    - `security_audit_metadata.json`
    - `security_audit_manifest.jsonl`
+
+## Language Profiles
+
+- `--language auto` (default): auto-detect from project markers
+- `--language python`: Django, Flask, FastAPI projects
+- `--language go`: Go projects (Gin, Echo, Chi)
+- `--language react`: React/TypeScript/Next.js/Vite projects
+- `--language dotnet`: .NET/ASP.NET/Blazor projects
 
 ## Tune For Large Legacy Repos
 
@@ -56,6 +65,8 @@ Repository: `https://github.com/mitkox/megacode`
 - If path/file access errors appear in RLM steps:
   - ensure tool-only repository access is used by the audit flow
   - re-run after confirming current `audit.py` includes `list_manifest/read_file/search_pattern` tools
+- If auto-detection picks wrong language:
+  - use `--language` to specify explicitly
 
 ## Deliverable Format
 

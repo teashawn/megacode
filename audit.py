@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -58,60 +61,38 @@ DEFAULT_OUTPUT_MANIFEST = Path(
     )
 )
 
-# Keep high-signal source/config files; skip binaries and build artifacts.
-INCLUDE_EXTENSIONS = {
-    ".cs",
-    ".cshtml",
-    ".csproj",
-    ".fs",
-    ".fsproj",
-    ".json",
-    ".props",
-    ".razor",
-    ".resx",
-    ".sln",
-    ".targets",
-    ".vb",
-    ".vbproj",
-    ".xml",
-    ".xaml",
-    ".yml",
-    ".yaml",
-}
-INCLUDE_FILENAMES = {
-    "appsettings.json",
-    "appsettings.development.json",
-    "nuget.config",
-    "packages.config",
-    "web.config",
-    "Directory.Build.props",
-    "Directory.Build.targets",
-    "global.json",
-    "Dockerfile",
-}
-SKIP_DIRS = {
+@dataclasses.dataclass(frozen=True)
+class LanguageProfile:
+    name: str
+    display_name: str
+    include_extensions: frozenset[str]
+    include_filenames: frozenset[str]
+    skip_dirs: frozenset[str]
+    security_path_hints: tuple[str, ...]
+    security_signal_pattern: re.Pattern[str]
+    extension_priority: dict[str, int]
+    scanner_instructions: str
+    tool_help_examples: tuple[str, ...]
+    detection_markers: frozenset[str]
+    detection_extensions: frozenset[str]
+
+
+_COMMON_SKIP_DIRS = frozenset({
     ".git",
     ".github",
     ".vscode",
-    ".vs",
-    "bin",
-    "obj",
-    "node_modules",
-    "packages",
-    "artifacts",
     "build",
     "dist",
     "out",
-}
+})
 
-SECURITY_PATH_HINTS = (
+_COMMON_PATH_HINTS = (
     "auth",
     "security",
     "signin",
     "login",
     "token",
     "jwt",
-    "controller",
     "middleware",
     "upload",
     "admin",
@@ -122,41 +103,433 @@ SECURITY_PATH_HINTS = (
     "crypto",
     "cert",
 )
-SECURITY_SIGNAL_PATTERN = re.compile(
-    r"(?i)\b("
-    r"fromsqlraw|fromsqlinterpolated|executesqlraw|sqlcommand|commandtext|"
-    r"process\\.start|ldap|binaryformatter|typenamehandling|deserialize|"
-    r"html\\.raw|allowanonymous|authorize|jwt|tokenvalidation|"
-    r"password|api[_-]?key|secret|connectionstring|"
-    r"md5|sha1|aes|rsa|certificatevalidationcallback|"
-    r"httpclient|webrequest|mappath|path\\.combine|upload"
-    r")\b"
+
+_DOTNET_SCANNER_INSTRUCTIONS = """\
+Security audit .NET code for vulnerabilities.
+
+Runtime workflow (important):
+- You are in a sandboxed interpreter. Host filesystem paths are not directly
+  accessible.
+- Use provided tools (`list_manifest`, `read_file`, `search_pattern`) for
+  all repository access.
+- Do NOT use `open()`, `os.listdir()`, `pathlib`, or direct file I/O for
+  repository files.
+- Every action must be valid executable Python only (no markdown headings
+  or prose in code blocks).
+- Read files lazily and only when needed.
+- Do NOT preload all file contents into memory and do NOT print huge dumps.
+- Start with targeted pattern scans per category, then inspect findings deeply.
+
+Check:
+- Injection: SQL (FromSqlRaw), Command, LDAP
+- Auth: JWT flaws, [Authorize] bypasses, missing auth checks
+- Deserialization: BinaryFormatter, NewtonSoft TypeNameHandling
+- XSS: @Html.Raw, unencoded Razor output
+- Secrets: Connection strings, API keys, passwords in code/config
+- Crypto: MD5/SHA1, hardcoded keys, cert bypass
+- Path traversal: Server.MapPath, file upload
+- SSRF: HttpClient without validation
+
+For each: Severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, vulnerable code,
+attack scenario, secure fix, CWE reference.
+
+Output:
+## Executive Summary (risk counts, top 3 threats)
+## Critical Findings (CRITICAL/HIGH)
+## Other Findings (MEDIUM/LOW)
+## Remediation (immediate fixes, architecture improvements)"""
+
+DOTNET_PROFILE = LanguageProfile(
+    name="dotnet",
+    display_name=".NET",
+    include_extensions=frozenset({
+        ".cs", ".cshtml", ".csproj", ".fs", ".fsproj", ".json", ".props",
+        ".razor", ".resx", ".sln", ".targets", ".vb", ".vbproj", ".xml",
+        ".xaml", ".yml", ".yaml",
+    }),
+    include_filenames=frozenset({
+        "appsettings.json", "appsettings.development.json", "nuget.config",
+        "packages.config", "web.config", "Directory.Build.props",
+        "Directory.Build.targets", "global.json", "Dockerfile",
+    }),
+    skip_dirs=_COMMON_SKIP_DIRS | frozenset({
+        ".vs", "bin", "obj", "node_modules", "packages", "artifacts",
+    }),
+    security_path_hints=_COMMON_PATH_HINTS + ("controller",),
+    security_signal_pattern=re.compile(
+        r"(?i)\b("
+        r"fromsqlraw|fromsqlinterpolated|executesqlraw|sqlcommand|commandtext|"
+        r"process\\.start|ldap|binaryformatter|typenamehandling|deserialize|"
+        r"html\\.raw|allowanonymous|authorize|jwt|tokenvalidation|"
+        r"password|api[_-]?key|secret|connectionstring|"
+        r"md5|sha1|aes|rsa|certificatevalidationcallback|"
+        r"httpclient|webrequest|mappath|path\\.combine|upload"
+        r")\b"
+    ),
+    extension_priority={
+        ".cs": 10, ".cshtml": 9, ".razor": 9, ".vb": 8, ".fs": 8,
+        ".json": 5, ".xml": 4, ".xaml": 4, ".yml": 3, ".yaml": 3,
+        ".config": 2, ".resx": 1,
+    },
+    scanner_instructions=_DOTNET_SCANNER_INSTRUCTIONS,
+    tool_help_examples=(
+        "list_manifest(limit=30, min_signal_score=1)",
+        "search_pattern(r'FromSqlRaw|ExecuteSqlRaw', ext='.cs')",
+        "read_file('src/MyController.cs', start_line=120, max_lines=80)",
+    ),
+    detection_markers=frozenset({
+        "*.sln", "*.csproj", "*.fsproj", "*.vbproj",
+        "global.json", "Directory.Build.props",
+    }),
+    detection_extensions=frozenset({".cs", ".vb", ".fs"}),
 )
-EXTENSION_PRIORITY = {
-    ".cs": 10,
-    ".cshtml": 9,
-    ".razor": 9,
-    ".vb": 8,
-    ".fs": 8,
-    ".json": 5,
-    ".xml": 4,
-    ".xaml": 4,
-    ".yml": 3,
-    ".yaml": 3,
-    ".config": 2,
-    ".resx": 1,
+
+_PYTHON_SCANNER_INSTRUCTIONS = """\
+Security audit Python code for vulnerabilities.
+
+Runtime workflow (important):
+- You are in a sandboxed interpreter. Host filesystem paths are not directly
+  accessible.
+- Use provided tools (`list_manifest`, `read_file`, `search_pattern`) for
+  all repository access.
+- Do NOT use `open()`, `os.listdir()`, `pathlib`, or direct file I/O for
+  repository files.
+- Every action must be valid executable Python only (no markdown headings
+  or prose in code blocks).
+- Read files lazily and only when needed.
+- Do NOT preload all file contents into memory and do NOT print huge dumps.
+- Start with targeted pattern scans per category, then inspect findings deeply.
+
+Check:
+- Injection: SQL (raw(), extra(), RawSQL, cursor.execute with f-strings),
+  Command (os.system, subprocess with shell=True), LDAP, Template (Jinja2, Mako)
+- Code execution: eval(), exec(), compile(), __import__(), pickle/shelve/marshal
+- Deserialization: pickle.load/loads, yaml.load without SafeLoader, jsonpickle
+- XSS: mark_safe(), |safe filter, Markup(), render_template_string()
+- Secrets: SECRET_KEY, DEBUG=True, ALLOWED_HOSTS=['*'], hardcoded passwords/keys
+- Crypto: hashlib.md5/sha1, random module for security, verify=False, CERT_NONE
+- Path traversal: open() with user input, send_file, send_from_directory
+- SSRF: requests/urllib/httpx with user-controlled URLs
+- Auth: missing @login_required, csrf_exempt, permission_classes=[], JWT misuse
+- Config: CORS_ALLOW_ALL_ORIGINS, SESSION_COOKIE_SECURE=False, app.run(debug=True)
+
+For each: Severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, vulnerable code,
+attack scenario, secure fix, CWE reference.
+
+Output:
+## Executive Summary (risk counts, top 3 threats)
+## Critical Findings (CRITICAL/HIGH)
+## Other Findings (MEDIUM/LOW)
+## Remediation (immediate fixes, architecture improvements)"""
+
+PYTHON_PROFILE = LanguageProfile(
+    name="python",
+    display_name="Python",
+    include_extensions=frozenset({
+        ".py", ".pyx", ".pyi", ".cfg", ".ini", ".toml", ".txt",
+        ".json", ".yml", ".yaml", ".xml", ".html",
+    }),
+    include_filenames=frozenset({
+        "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt",
+        "Pipfile", "Pipfile.lock", ".env", "manage.py", "wsgi.py", "asgi.py",
+        "Dockerfile", "alembic.ini", "conftest.py", "tox.ini",
+    }),
+    skip_dirs=_COMMON_SKIP_DIRS | frozenset({
+        "__pycache__", ".tox", ".mypy_cache", ".pytest_cache",
+        "venv", ".venv", "env", "site-packages", ".eggs",
+        "node_modules", "htmlcov",
+    }),
+    security_path_hints=_COMMON_PATH_HINTS + (
+        "views", "routes", "handlers", "serializers", "forms", "models",
+        "schemas", "permissions", "decorators", "validators",
+    ),
+    security_signal_pattern=re.compile(
+        r"(?i)\b("
+        r"eval|exec|compile|__import__|importlib|"
+        r"pickle|unpickler|shelve|marshal|yaml\.load|jsonpickle|"
+        r"os\.system|os\.popen|subprocess|shell\s*=\s*True|"
+        r"mark_safe|safestring|safetext|render_template_string|"
+        r"\.raw\(|\.extra\(|rawsql|cursor\.execute|"
+        r"password|api[_-]?key|secret[_-]?key|connectionstring|"
+        r"hashlib\.md5|hashlib\.sha1|"
+        r"verify\s*=\s*False|cert_none|"
+        r"send_file|send_from_directory|"
+        r"csrf_exempt|allowanonymous|login_required|"
+        r"debug\s*=\s*true|allowed_hosts|cors_allow_all"
+        r")\b"
+    ),
+    extension_priority={
+        ".py": 10, ".pyx": 8, ".pyi": 5, ".toml": 4,
+        ".cfg": 3, ".ini": 3, ".txt": 2, ".yml": 3, ".yaml": 3,
+        ".json": 5, ".xml": 4, ".html": 6,
+    },
+    scanner_instructions=_PYTHON_SCANNER_INSTRUCTIONS,
+    tool_help_examples=(
+        "list_manifest(limit=30, min_signal_score=1)",
+        "search_pattern(r'eval|exec|pickle\\.load', ext='.py')",
+        "read_file('app/views.py', start_line=50, max_lines=80)",
+    ),
+    detection_markers=frozenset({
+        "pyproject.toml", "setup.py", "requirements.txt", "Pipfile",
+        "manage.py",
+    }),
+    detection_extensions=frozenset({".py"}),
+)
+
+_GO_SCANNER_INSTRUCTIONS = """\
+Security audit Go code for vulnerabilities.
+
+Runtime workflow (important):
+- You are in a sandboxed interpreter. Host filesystem paths are not directly
+  accessible.
+- Use provided tools (`list_manifest`, `read_file`, `search_pattern`) for
+  all repository access.
+- Do NOT use `open()`, `os.listdir()`, `pathlib`, or direct file I/O for
+  repository files.
+- Every action must be valid executable Python only (no markdown headings
+  or prose in code blocks).
+- Read files lazily and only when needed.
+- Do NOT preload all file contents into memory and do NOT print huge dumps.
+- Start with targeted pattern scans per category, then inspect findings deeply.
+
+Check:
+- SQL injection: fmt.Sprintf in SQL queries, string concat in Query/Exec calls
+- Command injection: exec.Command with shell, syscall.Exec, os.StartProcess
+- Template confusion: text/template used for HTML (should use html/template),
+  template.HTML/JS/CSS type casts bypassing auto-escaping
+- TLS issues: InsecureSkipVerify:true, weak MinVersion, missing cert validation
+- Unsafe package: unsafe.Pointer arithmetic, reflect for type bypass
+- Race conditions: goroutine data races in auth/session, global map without mutex
+- Crypto: crypto/md5, crypto/sha1, math/rand for security, DES/RC4
+- Path traversal: filepath.Join with user input, os.Open with "../"
+- SSRF: http.Get/Post/NewRequest with user-controlled URLs
+- Secrets: hardcoded passwords, API keys, connection strings, private keys
+- Error handling: swallowed errors on security functions (bcrypt, jwt, tls)
+- Framework (Gin/Echo/Chi): AllowAllOrigins, debug mode, missing CSRF
+
+For each: Severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, vulnerable code,
+attack scenario, secure fix, CWE reference.
+
+Output:
+## Executive Summary (risk counts, top 3 threats)
+## Critical Findings (CRITICAL/HIGH)
+## Other Findings (MEDIUM/LOW)
+## Remediation (immediate fixes, architecture improvements)"""
+
+GO_PROFILE = LanguageProfile(
+    name="go",
+    display_name="Go",
+    include_extensions=frozenset({
+        ".go", ".mod", ".sum", ".tmpl", ".gohtml",
+        ".json", ".yml", ".yaml", ".toml",
+    }),
+    include_filenames=frozenset({
+        "go.mod", "go.sum", "Makefile", "Dockerfile",
+        ".goreleaser.yml", ".goreleaser.yaml",
+        "config.yaml", "config.json", "config.toml", ".env",
+    }),
+    skip_dirs=_COMMON_SKIP_DIRS | frozenset({
+        "vendor", "testdata",
+    }),
+    security_path_hints=_COMMON_PATH_HINTS + (
+        "handler", "router", "server", "cmd", "internal", "pkg",
+    ),
+    security_signal_pattern=re.compile(
+        r"(?i)\b("
+        r"exec\.command|syscall\.exec|os\.startprocess|"
+        r"insecureskipverify|"
+        r"unsafe\.pointer|"
+        r"crypto/md5|crypto/sha1|math/rand|"
+        r"template\.html|template\.js|template\.css|"
+        r"text/template|"
+        r"password|api[_-]?key|secret|private[_-]?key|"
+        r"fmt\.sprintf.*select|fmt\.sprintf.*insert|"
+        r"\.query\(|\.exec\(|\.queryrow\(|"
+        r"http\.get|http\.post|http\.newrequest|"
+        r"filepath\.join|os\.open|"
+        r"allowallorigins|"
+        r"gob\.newdecoder|"
+        r"des\.newcipher|rc4\.newcipher"
+        r")\b"
+    ),
+    extension_priority={
+        ".go": 10, ".tmpl": 7, ".gohtml": 7, ".mod": 5, ".sum": 2,
+        ".json": 5, ".yaml": 3, ".yml": 3, ".toml": 4,
+    },
+    scanner_instructions=_GO_SCANNER_INSTRUCTIONS,
+    tool_help_examples=(
+        "list_manifest(limit=30, min_signal_score=1)",
+        "search_pattern(r'InsecureSkipVerify|exec\\.Command', ext='.go')",
+        "read_file('internal/handler/auth.go', start_line=30, max_lines=80)",
+    ),
+    detection_markers=frozenset({
+        "go.mod", "go.sum",
+    }),
+    detection_extensions=frozenset({".go"}),
+)
+
+_REACT_SCANNER_INSTRUCTIONS = """\
+Security audit React/JavaScript/TypeScript code for vulnerabilities.
+
+Runtime workflow (important):
+- You are in a sandboxed interpreter. Host filesystem paths are not directly
+  accessible.
+- Use provided tools (`list_manifest`, `read_file`, `search_pattern`) for
+  all repository access.
+- Do NOT use `open()`, `os.listdir()`, `pathlib`, or direct file I/O for
+  repository files.
+- Every action must be valid executable Python only (no markdown headings
+  or prose in code blocks).
+- Read files lazily and only when needed.
+- Do NOT preload all file contents into memory and do NOT print huge dumps.
+- Start with targeted pattern scans per category, then inspect findings deeply.
+
+Check:
+- XSS: dangerouslySetInnerHTML, innerHTML, document.write, outerHTML,
+  insertAdjacentHTML, jQuery .html()/.append()
+- Code execution: eval(), new Function(), setTimeout/setInterval with strings,
+  exec/execSync/spawn via child process modules
+- Prototype pollution: Object.assign, lodash merge/set/defaultsDeep
+- JWT/Auth: localStorage/sessionStorage for tokens, jwt.decode without verify
+- Secret exposure: REACT_APP_, NEXT_PUBLIC_, VITE_ env vars with secrets,
+  hardcoded API keys/tokens in client code
+- SSRF: fetch/axios with user-controlled URLs in API routes/SSR
+- Open redirects: window.location with user input, res.redirect unvalidated
+- CORS: Access-Control-Allow-Origin:*, credentials:true with wildcard
+- Node.js server: fs with user input, SQL injection in queries
+- React-specific: ref DOM manipulation, useEffect cleanup issues
+- Next.js: API routes without auth, getServerSideProps data exposure
+
+For each: Severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, vulnerable code,
+attack scenario, secure fix, CWE reference.
+
+Output:
+## Executive Summary (risk counts, top 3 threats)
+## Critical Findings (CRITICAL/HIGH)
+## Other Findings (MEDIUM/LOW)
+## Remediation (immediate fixes, architecture improvements)"""
+
+REACT_PROFILE = LanguageProfile(
+    name="react",
+    display_name="React/TypeScript",
+    include_extensions=frozenset({
+        ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+        ".html", ".css", ".scss", ".json", ".yml", ".yaml",
+    }),
+    include_filenames=frozenset({
+        "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+        "tsconfig.json", "next.config.js", "next.config.mjs", "next.config.ts",
+        "vite.config.ts", "vite.config.js", "webpack.config.js",
+        ".env", ".env.local", ".env.production", "Dockerfile",
+    }),
+    skip_dirs=_COMMON_SKIP_DIRS | frozenset({
+        "node_modules", ".next", ".nuxt", ".cache", "coverage", ".turbo",
+    }),
+    security_path_hints=_COMMON_PATH_HINTS + (
+        "components", "pages", "routes", "hooks", "context",
+        "services", "utils", "store", "actions",
+    ),
+    security_signal_pattern=re.compile(
+        r"(?i)\b("
+        r"dangerouslysetinnerhtml|innerhtml|document\.write|outerhtml|"
+        r"insertadjacenthtml|"
+        r"eval|new\s+function|execsync|"
+        r"localstorage|sessionstorage|"
+        r"react_app_|next_public_|vite_|"
+        r"password|api[_-]?key|secret|private[_-]?key|"
+        r"access-control-allow-origin|"
+        r"window\.location|res\.redirect|"
+        r"\.html\(|\.append\(|"
+        r"jwt\.decode|jwt\.verify|"
+        r"object\.assign|_\.merge|_\.defaultsdeep|"
+        r"getserversideprops|getstaticprops|"
+        r"createelement.*script"
+        r")\b"
+    ),
+    extension_priority={
+        ".tsx": 10, ".ts": 10, ".jsx": 9, ".js": 9,
+        ".mjs": 8, ".cjs": 8, ".html": 6, ".json": 5,
+        ".css": 2, ".scss": 2, ".yml": 3, ".yaml": 3,
+    },
+    scanner_instructions=_REACT_SCANNER_INSTRUCTIONS,
+    tool_help_examples=(
+        "list_manifest(limit=30, min_signal_score=1)",
+        "search_pattern(r'dangerouslySetInnerHTML|innerHTML|eval', ext='.tsx')",
+        "read_file('src/components/Auth.tsx', start_line=20, max_lines=80)",
+    ),
+    detection_markers=frozenset({
+        "package.json", "next.config.js", "next.config.mjs", "next.config.ts",
+        "vite.config.ts", "vite.config.js",
+    }),
+    detection_extensions=frozenset({".jsx", ".tsx"}),
+)
+
+LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
+    "dotnet": DOTNET_PROFILE,
+    "python": PYTHON_PROFILE,
+    "go": GO_PROFILE,
+    "react": REACT_PROFILE,
 }
 
 
-def _is_audit_file(path: Path) -> bool:
-    if path.name in INCLUDE_FILENAMES:
+def detect_language(root_dir: Path) -> str | None:
+    """Scan top-level directory for language detection markers.
+
+    Returns the profile name with the strongest signal, or None if no
+    profile matches convincingly.
+    """
+    try:
+        top_entries = {entry.name for entry in root_dir.iterdir() if not entry.name.startswith(".")}
+    except OSError:
+        return None
+
+    top_extensions: dict[str, int] = {}
+    for name in top_entries:
+        ext = Path(name).suffix.lower()
+        if ext:
+            top_extensions[ext] = top_extensions.get(ext, 0) + 1
+
+    best_profile: str | None = None
+    best_score = 0
+
+    for profile_name, profile in LANGUAGE_PROFILES.items():
+        score = 0
+        for marker in profile.detection_markers:
+            if marker.startswith("*."):
+                marker_ext = marker[1:]
+                if marker_ext in top_extensions:
+                    score += 3
+            elif marker in top_entries:
+                score += 5
+
+        for ext in profile.detection_extensions:
+            if ext in top_extensions:
+                score += top_extensions[ext]
+
+        if score > best_score:
+            best_score = score
+            best_profile = profile_name
+
+    if best_score < 3:
+        return None
+    return best_profile
+
+
+def _is_audit_file(path: Path, profile: LanguageProfile) -> bool:
+    if path.name in profile.include_filenames:
         return True
-    return path.suffix.lower() in INCLUDE_EXTENSIONS
+    return path.suffix.lower() in profile.include_extensions
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run a .NET security audit using DSPy RLM and local REPL access."
+        description="Run a security audit using DSPy RLM and local REPL access."
+    )
+    parser.add_argument(
+        "--language",
+        choices=list(LANGUAGE_PROFILES.keys()) + ["auto"],
+        default="auto",
+        help="Language profile to use for the audit (default: auto-detect).",
     )
     parser.add_argument(
         "--source-root",
@@ -355,55 +728,25 @@ def _build_lm(model: str, api_base: str, max_tokens: int, api_key: str) -> Any:
 
 
 class CodeScanner(dspy.Signature):
-    """Security audit .NET code for vulnerabilities.
-
-    Runtime workflow (important):
-    - You are in a sandboxed interpreter. Host filesystem paths are not directly
-      accessible.
-    - Use provided tools (`list_manifest`, `read_file`, `search_pattern`) for
-      all repository access.
-    - Do NOT use `open()`, `os.listdir()`, `pathlib`, or direct file I/O for
-      repository files.
-    - Every action must be valid executable Python only (no markdown headings
-      or prose in code blocks).
-    - Read files lazily and only when needed.
-    - Do NOT preload all file contents into memory and do NOT print huge dumps.
-    - Start with targeted pattern scans per category, then inspect findings deeply.
-
-    Check:
-    - Injection: SQL (FromSqlRaw), Command, LDAP
-    - Auth: JWT flaws, [Authorize] bypasses, missing auth checks
-    - Deserialization: BinaryFormatter, NewtonSoft TypeNameHandling
-    - XSS: @Html.Raw, unencoded Razor output
-    - Secrets: Connection strings, API keys, passwords in code/config
-    - Crypto: MD5/SHA1, hardcoded keys, cert bypass
-    - Path traversal: Server.MapPath, file upload
-    - SSRF: HttpClient without validation
-
-    For each: Severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, vulnerable code,
-    attack scenario, secure fix, CWE reference.
-
-    Output:
-    ## Executive Summary (risk counts, top 3 threats)
-    ## Critical Findings (CRITICAL/HIGH)
-    ## Other Findings (MEDIUM/LOW)
-    ## Remediation (immediate fixes, architecture improvements)"""
+    """Security audit source code for vulnerabilities."""
 
     source_overview: str = dspy.InputField(
         description="Compact repository index summary to guide targeted analysis."
     )
-    documentation: str = dspy.OutputField(description=".NET security audit report")
+    documentation: str = dspy.OutputField(description="Security audit report")
 
 
-def _score_manifest_entry(path: str, content_preview: str) -> tuple[int, int]:
+def _score_manifest_entry(
+    path: str, content_preview: str, profile: LanguageProfile,
+) -> tuple[int, int]:
     path_lower = path.lower()
-    path_score = sum(1 for hint in SECURITY_PATH_HINTS if hint in path_lower)
-    signal_score = len(SECURITY_SIGNAL_PATTERN.findall(content_preview))
+    path_score = sum(1 for hint in profile.security_path_hints if hint in path_lower)
+    signal_score = len(profile.security_signal_pattern.findall(content_preview))
     return signal_score, path_score
 
 
-def _extension_priority(ext: str) -> int:
-    return EXTENSION_PRIORITY.get(ext.lower(), 0)
+def _extension_priority(ext: str, profile: LanguageProfile) -> int:
+    return profile.extension_priority.get(ext.lower(), 0)
 
 
 @lru_cache(maxsize=256)
@@ -418,6 +761,7 @@ def collect_source_manifest(
     max_files: int,
     max_file_bytes: int,
     skip_hidden_dirs: bool,
+    profile: LanguageProfile,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     manifest: list[dict[str, Any]] = []
     stats = {
@@ -451,7 +795,7 @@ def collect_source_manifest(
                 continue
 
             if path.is_dir():
-                if name in SKIP_DIRS:
+                if name in profile.skip_dirs:
                     stats["skipped_configured_dirs"] += 1
                     continue
                 if skip_hidden_dirs and name.startswith("."):
@@ -461,7 +805,7 @@ def collect_source_manifest(
                 walk(path, next_prefix)
                 continue
 
-            if name == "CONTENT" or not _is_audit_file(path):
+            if name == "CONTENT" or not _is_audit_file(path, profile):
                 continue
 
             try:
@@ -484,7 +828,7 @@ def collect_source_manifest(
                 stats["skipped_unreadable_files"] += 1
                 continue
 
-            signal_score, path_score = _score_manifest_entry(rel_path, preview)
+            signal_score, path_score = _score_manifest_entry(rel_path, preview, profile)
             manifest.append(
                 {
                     "path": rel_path,
@@ -502,7 +846,7 @@ def collect_source_manifest(
     manifest.sort(
         key=lambda item: (
             -int(item["signal_score"]),
-            -_extension_priority(str(item["ext"])),
+            -_extension_priority(str(item["ext"]), profile),
             -int(item["path_score"]),
             -int(item["bytes"]),
             item["path"],
@@ -623,6 +967,7 @@ def build_rlm_tools(
     default_search_max_files: int,
     default_search_max_matches: int,
     default_search_rg_chunk_size: int = DEFAULT_SEARCH_RG_CHUNK_SIZE,
+    profile: LanguageProfile = DOTNET_PROFILE,
 ) -> list[Any]:
     manifest_by_path: dict[str, dict[str, Any]] = {}
     for entry in manifest:
@@ -661,11 +1006,7 @@ def build_rlm_tools(
                 "Do not use open/os/pathlib for repo files in sandbox code.",
                 "Prefer search_pattern() then read_file() around matched lines.",
             ],
-            "examples": [
-                "list_manifest(limit=30, min_signal_score=1)",
-                "search_pattern(r'FromSqlRaw|ExecuteSqlRaw', ext='.cs')",
-                "read_file('src/MyController.cs', start_line=120, max_lines=80)",
-            ],
+            "examples": list(profile.tool_help_examples),
         }
 
     def list_manifest(
@@ -1082,11 +1423,27 @@ def main() -> int:
 
     _check_prerequisites()
 
+    if args.language == "auto":
+        detected = detect_language(source_root)
+        if detected is None:
+            print(
+                "Could not auto-detect language. Defaulting to dotnet. "
+                "Use --language to specify explicitly."
+            )
+            detected = "dotnet"
+        else:
+            print(f"Auto-detected language profile: {detected}")
+        profile = LANGUAGE_PROFILES[detected]
+    else:
+        profile = LANGUAGE_PROFILES[args.language]
+        print(f"Using language profile: {profile.display_name}")
+
     manifest, stats = collect_source_manifest(
         source_root,
         max_files=args.max_files,
         max_file_bytes=args.max_file_bytes,
         skip_hidden_dirs=args.skip_hidden_dirs,
+        profile=profile,
     )
     if not manifest:
         raise RuntimeError(
@@ -1126,6 +1483,7 @@ def main() -> int:
         default_search_max_files=args.search_max_files,
         default_search_max_matches=args.search_max_matches,
         default_search_rg_chunk_size=args.search_rg_chunk_size,
+        profile=profile,
     )
     rg_available = shutil.which("rg") is not None
     if rg_available:
@@ -1162,8 +1520,10 @@ def main() -> int:
     )
     dspy.configure(lm=lm)
 
+    LanguageScanner = CodeScanner.with_instructions(profile.scanner_instructions)
+
     code_scanner = dspy.RLM(
-        CodeScanner,
+        LanguageScanner,
         max_iterations=args.max_iterations,
         max_llm_calls=args.rlm_max_llm_calls,
         max_output_chars=args.rlm_max_output_chars,
@@ -1226,6 +1586,8 @@ def main() -> int:
             "skip_hidden_dirs": args.skip_hidden_dirs,
             "fast_mode": args.fast_mode,
             "rg_available": rg_available,
+            "language": profile.name,
+            "language_display": profile.display_name,
         },
         "loader_stats": {
             "skipped_symlinks": stats["skipped_symlinks"],
