@@ -87,3 +87,61 @@ def test_react_signal_pattern() -> None:
     assert pattern.search("element.innerHTML = userInput")
     assert pattern.search("localStorage.setItem('token', jwt)")
     assert not pattern.search("console.log('hello')")
+
+
+def test_react_profile_structure() -> None:
+    """Verify React profile has all required fields with correct types."""
+    p = audit.REACT_PROFILE
+    assert p.name == "react"
+    assert p.display_name == "React/TypeScript"
+    assert isinstance(p.include_extensions, frozenset)
+    assert ".tsx" in p.include_extensions
+    assert isinstance(p.include_filenames, frozenset)
+    assert "package.json" in p.include_filenames
+    assert isinstance(p.skip_dirs, frozenset)
+    assert "node_modules" in p.skip_dirs
+    assert isinstance(p.security_path_hints, tuple)
+    assert "components" in p.security_path_hints
+    assert isinstance(p.extension_priority, dict)
+    assert p.extension_priority[".tsx"] == 10
+    assert isinstance(p.scanner_instructions, str)
+    assert "dangerouslySetInnerHTML" in p.scanner_instructions
+    assert isinstance(p.tool_help_examples, tuple)
+    assert len(p.tool_help_examples) > 0
+    assert isinstance(p.detection_markers, frozenset)
+    assert isinstance(p.detection_extensions, frozenset)
+
+
+def test_all_profiles_common_skip_dirs() -> None:
+    """All 4 profiles include _COMMON_SKIP_DIRS entries."""
+    common = audit._COMMON_SKIP_DIRS
+    for name, profile in audit.LANGUAGE_PROFILES.items():
+        for d in common:
+            assert d in profile.skip_dirs, (
+                f"{name} profile missing common skip dir: {d}"
+            )
+
+
+def test_all_profiles_common_path_hints() -> None:
+    """All 4 profiles include _COMMON_PATH_HINTS entries."""
+    common = audit._COMMON_PATH_HINTS
+    for name, profile in audit.LANGUAGE_PROFILES.items():
+        for hint in common:
+            assert hint in profile.security_path_hints, (
+                f"{name} profile missing common path hint: {hint}"
+            )
+
+
+def test_all_profiles_scanner_instructions_format() -> None:
+    """All scanner instructions contain required output sections."""
+    required_sections = [
+        "Executive Summary",
+        "Critical Findings",
+        "Other Findings",
+        "Remediation",
+    ]
+    for name, profile in audit.LANGUAGE_PROFILES.items():
+        for section in required_sections:
+            assert section in profile.scanner_instructions, (
+                f"{name} scanner instructions missing section: {section}"
+            )

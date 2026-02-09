@@ -7,6 +7,72 @@ import audit
 # invocations -- they test that the audit scanner would flag these patterns.
 
 
+# --- DOTNET deep signal tests ---
+
+
+def test_dotnet_signal_injection() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "FromSqlRaw(sql)", "ExecuteSqlRaw(conn, sql)",
+        "var cmd = new SqlCommand(q)", "cmd.CommandText = q",
+        "Process.Start(exe)", "ldap://host",
+    ]:
+        assert pat.search(term), f"Should match: {term}"
+
+
+def test_dotnet_signal_auth_xss() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "[AllowAnonymous]", "[Authorize]",
+        "JWT bearer", "TokenValidation",
+        "@Html.Raw(data)",
+    ]:
+        assert pat.search(term), f"Should match: {term}"
+
+
+def test_dotnet_signal_deserialization() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "new BinaryFormatter()", "TypeNameHandling.All",
+        "Deserialize(stream)",
+    ]:
+        assert pat.search(term), f"Should match: {term}"
+
+
+def test_dotnet_signal_secrets_crypto() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "password = secret", "api_key = x", "var secret = val",
+        "connectionstring = cs",
+        "MD5.Create()", "SHA1.Create()",
+        "AES.Create()", "RSA.Create()",
+        "CertificateValidationCallback",
+    ]:
+        assert pat.search(term), f"Should match: {term}"
+
+
+def test_dotnet_signal_network_path() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "new HttpClient()", "WebRequest.Create(url)",
+        "Server.MapPath(path)", "Path.Combine(a, b)",
+        "upload file",
+    ]:
+        assert pat.search(term), f"Should match: {term}"
+
+
+def test_dotnet_signal_negative() -> None:
+    pat = audit.DOTNET_PROFILE.security_signal_pattern
+    for term in [
+        "Console.WriteLine(x)",
+        "var count = 0",
+        "string.Empty",
+        "DateTime.Now",
+        "List<int> items",
+    ]:
+        assert not pat.search(term), f"Should NOT match: {term}"
+
+
 # --- Python deep signal tests ---
 
 
@@ -172,3 +238,38 @@ def test_react_signal_nextjs_dom() -> None:
         "window.location = url", "res.redirect(url)",
     ]:
         assert pat.search(term), f"Should match: {term}"
+
+
+# --- Negative / false-positive guard tests ---
+
+
+def test_python_signal_negative() -> None:
+    pat = audit.PYTHON_PROFILE.security_signal_pattern
+    for term in [
+        "print('hello')",
+        "math.sqrt(4)",
+        "json.loads(data)",
+        "hashlib.sha256(data)",
+    ]:
+        assert not pat.search(term), f"Should NOT match: {term}"
+
+
+def test_go_signal_negative() -> None:
+    pat = audit.GO_PROFILE.security_signal_pattern
+    for term in [
+        "fmt.Println(x)",
+        "log.Fatal(err)",
+        "http.ListenAndServe(addr, nil)",
+    ]:
+        assert not pat.search(term), f"Should NOT match: {term}"
+
+
+def test_react_signal_negative() -> None:
+    pat = audit.REACT_PROFILE.security_signal_pattern
+    for term in [
+        "console.log('hello')",
+        "useState(0)",
+        "useEffect(() => {})",
+        "React.memo(Component)",
+    ]:
+        assert not pat.search(term), f"Should NOT match: {term}"

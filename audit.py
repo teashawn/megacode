@@ -159,11 +159,11 @@ DOTNET_PROFILE = LanguageProfile(
     security_signal_pattern=re.compile(
         r"(?i)\b("
         r"fromsqlraw|fromsqlinterpolated|executesqlraw|sqlcommand|commandtext|"
-        r"process\\.start|ldap|binaryformatter|typenamehandling|deserialize|"
-        r"html\\.raw|allowanonymous|authorize|jwt|tokenvalidation|"
+        r"process\.start|ldap|binaryformatter|typenamehandling|deserialize|"
+        r"html\.raw|allowanonymous|authorize|jwt|tokenvalidation|"
         r"password|api[_-]?key|secret|connectionstring|"
         r"md5|sha1|aes|rsa|certificatevalidationcallback|"
-        r"httpclient|webrequest|mappath|path\\.combine|upload"
+        r"httpclient|webrequest|mappath|path\.combine|upload"
         r")\b"
     ),
     extension_priority={

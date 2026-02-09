@@ -76,6 +76,47 @@ Save to `research/python_security_research.md` with vulnerability categories, CW
 
 **Goal:** Add PYTHON_PROFILE to audit.py using research from Step 2.
 
+**Reference:** `research/python_security_research.md`
+
+### 3.1 Profile field values
+
+- **include_extensions:** `.py`, `.pyx`, `.pyi`, `.cfg`, `.ini`, `.toml`, `.txt`, `.json`, `.yml`, `.yaml`, `.xml`, `.html`
+- **include_filenames:** `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Pipfile.lock`, `.env`, `manage.py`, `wsgi.py`, `asgi.py`, `Dockerfile`, `alembic.ini`, `conftest.py`, `tox.ini`
+- **skip_dirs:** `_COMMON_SKIP_DIRS` + `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `venv`, `.venv`, `env`, `site-packages`, `.eggs`, `node_modules`, `htmlcov`
+- **security_path_hints:** `_COMMON_PATH_HINTS` + `views`, `routes`, `handlers`, `serializers`, `forms`, `models`, `schemas`, `permissions`, `decorators`, `validators`
+- **extension_priority:** `.py: 10`, `.pyx: 8`, `.pyi: 5`, `.html: 6`, `.json: 5`, `.toml: 4`, `.xml: 4`, `.cfg: 3`, `.ini: 3`, `.yml: 3`, `.yaml: 3`, `.txt: 2`
+
+### 3.2 Security signal pattern terms
+
+| Category | Terms |
+|----------|-------|
+| Code running | `eval`, `compile`, `__import__`, `importlib` |
+| Deserialization | `unpickler`, `shelve`, `marshal`, `yaml.load`, `jsonpickle` |
+| Injection (command) | `os.system`, `os.popen`, `subprocess`, `shell=True` |
+| Injection (SQL/template) | `.raw(`, `.extra(`, `rawsql`, `cursor.execute` |
+| Secrets/crypto | `password`, `api_key`, `secret_key`, `connectionstring`, `hashlib.md5`, `hashlib.sha1`, `verify=False`, `cert_none` |
+| Web security | `mark_safe`, `safestring`, `safetext`, `render_template_string` |
+| Auth/config | `csrf_exempt`, `allowanonymous`, `login_required`, `debug=true`, `allowed_hosts`, `cors_allow_all` |
+| Path traversal | `send_file`, `send_from_directory` |
+
+### 3.3 Scanner instructions checklist
+
+- Injection: SQL (raw, extra, RawSQL, cursor.execute with f-strings), Command (os.system, subprocess with shell=True), LDAP, Template (Jinja2, Mako)
+- Code running: eval, compile, __import__, serialization modules
+- Deserialization: yaml.load without SafeLoader, jsonpickle
+- XSS: mark_safe, |safe filter, Markup, render_template_string
+- Secrets: SECRET_KEY, DEBUG=True, ALLOWED_HOSTS=['*'], hardcoded passwords/keys
+- Crypto: hashlib.md5/sha1, random module for security, verify=False, CERT_NONE
+- Path traversal: open with user input, send_file, send_from_directory
+- SSRF: requests/urllib/httpx with user-controlled URLs
+- Auth: missing @login_required, csrf_exempt, permission_classes=[], JWT misuse
+- Config: CORS_ALLOW_ALL_ORIGINS, SESSION_COOKIE_SECURE=False, app.run(debug=True)
+
+### 3.4 Detection markers and extensions
+
+- **detection_markers:** `pyproject.toml`, `setup.py`, `requirements.txt`, `Pipfile`, `manage.py`
+- **detection_extensions:** `.py`
+
 ---
 
 ## Step 4: Research Go security vulnerabilities
@@ -91,6 +132,51 @@ Save to `research/go_security_research.md` with same structure as Python researc
 ## Step 5: Implement Go language profile
 
 **Goal:** Add GO_PROFILE to audit.py using research from Step 4.
+
+**Reference:** `research/go_security_research.md`
+
+### 5.1 Profile field values
+
+- **include_extensions:** `.go`, `.mod`, `.sum`, `.tmpl`, `.gohtml`, `.json`, `.yml`, `.yaml`, `.toml`
+- **include_filenames:** `go.mod`, `go.sum`, `Makefile`, `Dockerfile`, `.goreleaser.yml`, `.goreleaser.yaml`, `config.yaml`, `config.json`, `config.toml`, `.env`
+- **skip_dirs:** `_COMMON_SKIP_DIRS` + `vendor`, `testdata`
+- **security_path_hints:** `_COMMON_PATH_HINTS` + `handler`, `router`, `server`, `cmd`, `internal`, `pkg`
+- **extension_priority:** `.go: 10`, `.tmpl: 7`, `.gohtml: 7`, `.mod: 5`, `.json: 5`, `.toml: 4`, `.yaml: 3`, `.yml: 3`, `.sum: 2`
+
+### 5.2 Security signal pattern terms
+
+| Category | Terms |
+|----------|-------|
+| Command injection | `exec.Command`, `syscall.Exec`, `os.StartProcess` |
+| TLS | `InsecureSkipVerify` |
+| Unsafe | `unsafe.Pointer` |
+| Weak crypto | `crypto/md5`, `crypto/sha1`, `math/rand`, `des.NewCipher`, `rc4.NewCipher` |
+| Template confusion | `template.HTML`, `template.JS`, `template.CSS`, `text/template` |
+| SQL/HTTP | `fmt.Sprintf` with SELECT/INSERT, `.Query(`, `.Exec(`, `.QueryRow(`, `http.Get`, `http.Post`, `http.NewRequest` |
+| Path traversal | `filepath.Join`, `os.Open` |
+| Secrets | `password`, `api_key`, `secret`, `private_key` |
+| Framework (Gin/Echo/Chi) | `AllowAllOrigins` |
+| Deserialization | `gob.NewDecoder` |
+
+### 5.3 Scanner instructions checklist
+
+- SQL injection: fmt.Sprintf in SQL queries, string concat in Query/Exec calls
+- Command injection: exec.Command with shell, syscall.Exec, os.StartProcess
+- Template confusion: text/template used for HTML (should use html/template), template.HTML/JS/CSS type casts bypassing auto-escaping
+- TLS issues: InsecureSkipVerify:true, weak MinVersion, missing cert validation
+- Unsafe package: unsafe.Pointer arithmetic, reflect for type bypass
+- Race conditions: goroutine data races in auth/session, global map without mutex
+- Crypto: crypto/md5, crypto/sha1, math/rand for security, DES/RC4
+- Path traversal: filepath.Join with user input, os.Open with "../"
+- SSRF: http.Get/Post/NewRequest with user-controlled URLs
+- Secrets: hardcoded passwords, API keys, connection strings, private keys
+- Error handling: swallowed errors on security functions (bcrypt, jwt, tls)
+- Framework (Gin/Echo/Chi): AllowAllOrigins, debug mode, missing CSRF
+
+### 5.4 Detection markers and extensions
+
+- **detection_markers:** `go.mod`, `go.sum`
+- **detection_extensions:** `.go`
 
 ---
 
@@ -108,6 +194,50 @@ Save to `research/react_security_research.md` with same structure.
 
 **Goal:** Add REACT_PROFILE to audit.py using research from Step 6.
 
+**Reference:** `research/react_security_research.md`
+
+### 7.1 Profile field values
+
+- **include_extensions:** `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.html`, `.css`, `.scss`, `.json`, `.yml`, `.yaml`
+- **include_filenames:** `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `tsconfig.json`, `next.config.js`, `next.config.mjs`, `next.config.ts`, `vite.config.ts`, `vite.config.js`, `webpack.config.js`, `.env`, `.env.local`, `.env.production`, `Dockerfile`
+- **skip_dirs:** `_COMMON_SKIP_DIRS` + `node_modules`, `.next`, `.nuxt`, `.cache`, `coverage`, `.turbo`
+- **security_path_hints:** `_COMMON_PATH_HINTS` + `components`, `pages`, `routes`, `hooks`, `context`, `services`, `utils`, `store`, `actions`
+- **extension_priority:** `.tsx: 10`, `.ts: 10`, `.jsx: 9`, `.js: 9`, `.mjs: 8`, `.cjs: 8`, `.html: 6`, `.json: 5`, `.yml: 3`, `.yaml: 3`, `.css: 2`, `.scss: 2`
+
+### 7.2 Security signal pattern terms
+
+| Category | Terms |
+|----------|-------|
+| XSS / DOM APIs | `dangerouslySetInnerHTML`, `innerHTML`, `document.write`, `outerHTML`, `insertAdjacentHTML` |
+| Code running | `eval`, Function constructor, `execSync` |
+| Storage/secrets | `localStorage`, `sessionStorage`, `REACT_APP_`, `NEXT_PUBLIC_`, `VITE_`, `password`, `api_key`, `secret`, `private_key` |
+| CORS | `access-control-allow-origin` |
+| Redirects | `window.location`, `res.redirect` |
+| jQuery DOM | `.html(`, `.append(` |
+| JWT | `jwt.decode`, `jwt.verify` |
+| Prototype pollution | `Object.assign`, `_.merge`, `_.defaultsDeep` |
+| Next.js / SSR | `getServerSideProps`, `getStaticProps` |
+| DOM creation | `createElement` + `script` |
+
+### 7.3 Scanner instructions checklist
+
+- XSS: dangerouslySetInnerHTML, innerHTML, document.write, outerHTML, insertAdjacentHTML, jQuery .html/.append
+- Code running: eval, Function constructor, setTimeout/setInterval with strings, execSync/spawn via child process modules
+- Prototype pollution: Object.assign, lodash merge/set/defaultsDeep
+- JWT/Auth: localStorage/sessionStorage for tokens, jwt.decode without verify
+- Secret exposure: REACT_APP_, NEXT_PUBLIC_, VITE_ env vars with secrets, hardcoded API keys/tokens in client code
+- SSRF: fetch/axios with user-controlled URLs in API routes/SSR
+- Open redirects: window.location with user input, res.redirect unvalidated
+- CORS: Access-Control-Allow-Origin:*, credentials:true with wildcard
+- Node.js server: fs with user input, SQL injection in queries
+- React-specific: ref DOM manipulation, useEffect cleanup issues
+- Next.js: API routes without auth, getServerSideProps data exposure
+
+### 7.4 Detection markers and extensions
+
+- **detection_markers:** `package.json`, `next.config.js`, `next.config.mjs`, `next.config.ts`, `vite.config.ts`, `vite.config.js`
+- **detection_extensions:** `.jsx`, `.tsx`
+
 ---
 
 ## Step 8: Update documentation and metadata
@@ -116,6 +246,32 @@ Save to `research/react_security_research.md` with same structure.
 - **SKILL.md:** Broaden to "multi-language codebases (Python, Go, React, .NET)"
 - **pyproject.toml:** Update description and keywords
 - **CHANGELOG.md:** Add entry for multi-language support
+
+---
+
+## Step 9: Comprehensive test suite
+
+**Goal:** Document and maintain the 8-file test suite covering all profiles and functionality.
+
+### Test file structure
+
+| File | Tests | Focus |
+|------|-------|-------|
+| `test_profiles.py` | 13 | LanguageProfile structure, registry, immutability, cross-profile validation |
+| `test_security_signals.py` | 24 | Deep signal pattern tests per profile (positive + negative/false-positive guards) |
+| `test_detect_language.py` | 12 | Language auto-detection from markers and extensions |
+| `test_manifest.py` | 32 | File collection, scoring, filtering, extension priority |
+| `test_rlm_tools.py` | 26 | RLM tool construction and behavior |
+| `test_main.py` | 33 | CLI argument parsing, main orchestration |
+| `test_execution.py` | 26 | End-to-end execution paths |
+| `test_utilities.py` | 26 | Helper functions, caching, regex compilation |
+
+### Coverage targets
+
+- Every profile (DOTNET, Python, Go, React) has deep signal pattern tests
+- Each profile has negative tests to guard against false positives
+- Cross-profile tests verify common skip dirs, path hints, scanner instruction format
+- Total: ~192 tests
 
 ---
 
